@@ -1,7 +1,5 @@
 module tarefas;
 
-import std.stdio : writeln;
-
 @system unittest
 {
     import core.thread : seconds, Thread;
@@ -49,12 +47,13 @@ final shared class Tarefa
 
     void perform()
     {
-        synchronized {
-            if (done) return;
+        if (done) return;
 
+        synchronized (this) {
             fun_();
-            atomicStore(done_, true);
         }
+
+        atomicStore(done_, true);
     }
 
     bool done() @nogc @property @safe const pure
@@ -125,9 +124,7 @@ final class Tarefas
 
     private void performAvailable()
     {
-        immutable tid = Thread.getThis().id;
-
-        while (atomicLoad(running_)) {
+        while (running) {
             shared(Tarefa) tarefa = null;
 
             if (queueMutex_.tryLock()) {
