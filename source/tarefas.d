@@ -21,16 +21,21 @@ module tarefas;
         result2 = "what up";
     });
 
-    // do some "stuff" concurrently
+    // do some "stuff" in parallel
     Thread.sleep(2.seconds);
 
     // oh look, it finished in the background.
+    assert(tarefa1.done);
     assert(result1 == "done");
+
+    assert(tarefa2.done);
     assert(result2 == "what up");
 }
 
-final class Tarefa
+final shared class Tarefa
 {
+    import core.atomic : atomicStore, atomicLoad;
+
     alias Function = void delegate();
     private Function fun_;
     private bool done_;
@@ -42,15 +47,17 @@ final class Tarefa
 
     void perform()
     {
-        if (done_) return;
+        synchronized {
+            if (done) return;
 
-        fun_();
-        done_ = true;
+            fun_();
+            atomicStore(done_, true);
+        }
     }
 
     bool done() @nogc @property @safe const pure
     {
-        return done_;
+        return atomicLoad(done_);
     }
 }
 
@@ -80,22 +87,22 @@ final class Tarefas
 
     Tarefas start()
     {
-        assert(!atomicLoad(running_), "Tarefas is already running.");
+        assert(!running, "Tarefas is already running.");
         atomicStore(running_, true);
         return this;
     }
 
     Tarefas stop()
     {
-        assert(atomicLoad(running_), "Tarefas must be running to stop.");
+        assert(running, "Tarefas must be running to stop.");
         atomicStore(running_, false);
         return this;
     }
 
-    Tarefa perform(Tarefa.Function fun) @trusted
+    shared(Tarefa) perform(Tarefa.Function fun) @trusted
     {
-        auto tarefa = new Tarefa(fun);
-        this.queueMutexed!((ref q) => q ~= cast(shared) tarefa);
+        auto tarefa = new shared Tarefa(fun);
+        this.queueMutexed!((ref q) => q ~= tarefa);
         return tarefa;
     }
 
@@ -103,10 +110,10 @@ final class Tarefas
     {
         while (atomicLoad(running_)) {
             if (this.queueMutexed!((ref q) => q.length)) {
-                Tarefa tarefa;
+                shared(Tarefa) tarefa;
 
                 this.queueMutexed!((ref q) {
-                    tarefa = cast(Tarefa) q[0];
+                    tarefa = q[0];
                     q = q[1 .. $];
                 });
 
