@@ -2,6 +2,7 @@
     name "tarefas-http-example"
     dependency "tarefas" path=".."
     dependency "requests" version="~>0.8.0"
+    versions "StdLoggerDisableLogging"
 +/
 
 import std.stdio;
@@ -18,11 +19,10 @@ void main()
         content = getContent("http://httpbin.org/get").toString();
     });
 
-    while (!req.done) {}
+    while (!req.done) { /* await until completion */ }
 
     tarefas.stop();
 
     // it's done!
     writeln(content);
-    writeln("\n", cnt);
 }
