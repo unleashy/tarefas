@@ -1,5 +1,7 @@
 module tarefas;
 
+import std.stdio : writeln;
+
 @system unittest
 {
     import core.thread : seconds, Thread;
@@ -7,14 +9,14 @@ module tarefas;
     auto tarefas = new Tarefas().start(); // the background loop starts here
     scope(exit) tarefas.stop();          // and it stops when we exit
 
-    __gshared string result1;
+    shared string result1;
     auto tarefa1 = tarefas.perform({
         // perform "work"
         Thread.sleep(1.seconds);
         result1 = "done";
     });
 
-    __gshared string result2;
+    shared string result2;
     auto tarefa2 = tarefas.perform({
         // perform "work"
         Thread.sleep(1.seconds);
@@ -61,8 +63,6 @@ final shared class Tarefa
     }
 }
 
-@safe:
-
 final class Tarefas
 {
     import core.atomic     : atomicStore, atomicLoad;
@@ -74,14 +74,14 @@ final class Tarefas
     private shared bool running_;
     private shared Mutex queueMutex_;
 
-    this() @system
+    this()
     {
         queueMutex_ = new shared Mutex();
         pool_ = [
-            new Thread(&performAvailable).start(),
-            new Thread(&performAvailable).start(),
-            new Thread(&performAvailable).start(),
-            new Thread(&performAvailable).start()
+            new Thread(&performAvailable),
+            new Thread(&performAvailable),
+            new Thread(&performAvailable),
+            new Thread(&performAvailable)
         ];
     }
 
@@ -89,6 +89,11 @@ final class Tarefas
     {
         assert(!running, "Tarefas is already running.");
         atomicStore(running_, true);
+
+        foreach (ref thread; pool_) {
+            thread.start();
+        }
+
         return this;
     }
 
@@ -96,47 +101,50 @@ final class Tarefas
     {
         assert(running, "Tarefas must be running to stop.");
         atomicStore(running_, false);
+
+        foreach (ref thread; pool_) {
+            thread.join();
+        }
+
         return this;
     }
 
-    shared(Tarefa) perform(Tarefa.Function fun) @trusted
+    shared(Tarefa) perform(Tarefa.Function fun)
     {
         auto tarefa = new shared Tarefa(fun);
-        this.queueMutexed!((ref q) => q ~= tarefa);
+
+        {
+            queueMutex_.lock();
+            scope(exit) queueMutex_.unlock();
+
+            queue_ ~= tarefa;
+        }
+
         return tarefa;
     }
 
-    private void performAvailable() @system
+    private void performAvailable()
     {
+        immutable tid = Thread.getThis().id;
+
         while (atomicLoad(running_)) {
-            if (this.queueMutexed!((ref q) => q.length)) {
-                shared(Tarefa) tarefa;
+            shared(Tarefa) tarefa = null;
 
-                this.queueMutexed!((ref q) {
-                    tarefa = q[0];
-                    q = q[1 .. $];
-                });
+            if (queueMutex_.tryLock()) {
+                scope(exit) queueMutex_.unlock();
 
-                tarefa.perform();
+                if (queue_.length) {
+                    tarefa = queue_[0]; // get the first one you see
+                    queue_ = queue_[1 .. $]; // pop it off
+                }
             }
+
+            if (tarefa) tarefa.perform();
         }
     }
 
-    bool running() @nogc @property const pure
+    bool running() @nogc @property @safe const pure
     {
         return atomicLoad(running_);
-    }
-}
-
-// helper for Tarefas -- lock queue, exec fun, unlock
-private auto queueMutexed(alias fun)(Tarefas t) @trusted
-{
-    t.queueMutex_.lock();
-    scope(exit) t.queueMutex_.unlock();
-
-    static if (is(fun == void)) {
-        fun(t.queue_);
-    } else {
-        return fun(t.queue_);
     }
 }
