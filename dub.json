@@ -1,0 +1,11 @@
+{
+	"name": "tarefas",
+	"authors": [
+		"unleashy"
+	],
+	"description": "job system for multithreading practice",
+	"copyright": "Copyright © 2018, unleashy",
+	"license": "MIT",
+    
+    "targetPath": "bin"
+}
